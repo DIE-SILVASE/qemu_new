@@ -15,3 +15,4 @@ system_ss.add(when: 'CONFIG_RASPI', if_true: files(
 ))
 system_ss.add(when: 'CONFIG_ASPEED_SOC', if_true: files('aspeed_gpio.c'))
 system_ss.add(when: 'CONFIG_SIFIVE_GPIO', if_true: files('sifive_gpio.c'))
+system_ss.add(when: 'CONFIG_STM32_GPIO', if_true: files('stm32_gpio.c'))

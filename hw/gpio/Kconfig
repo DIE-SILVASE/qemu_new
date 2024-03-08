@@ -16,3 +16,6 @@ config GPIO_PWR
 
 config SIFIVE_GPIO
     bool
+
+config STM32_GPIO
+    bool
