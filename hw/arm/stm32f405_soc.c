@@ -26,6 +26,7 @@
 #include "qapi/error.h"
 #include "exec/address-spaces.h"
 #include "sysemu/sysemu.h"
+#include "hw/arm/stm32.h"
 #include "hw/arm/stm32f405_soc.h"
 #include "hw/qdev-clock.h"
 #include "hw/misc/unimp.h"
@@ -84,7 +85,12 @@ static void stm32f405_soc_initfn(Object *obj)
 
     for (i = STM32_GPIO_PORT_A; i <= STM32_GPIO_PORT_I; i++) {
         object_initialize_child(obj, "gpio[*]", &s->gpio[i], TYPE_STM32_GPIO);
+        s->gpio[i].family = STM32_F4;
+        s->gpio[i].port = i;
+        s->gpio[i].ngpio = STM32_GPIO_NPINS;
     }
+
+    object_initialize_child(obj, "rcc", &s->rcc, TYPE_STM32_RCC);
 
     s->sysclk = qdev_init_clock_in(DEVICE(s), "sysclk", NULL, NULL, 0);
     s->refclk = qdev_init_clock_in(DEVICE(s), "refclk", NULL, NULL, 0);
@@ -164,6 +170,14 @@ static void stm32f405_soc_realize(DeviceState *dev_soc, Error **errp)
     if (!sysbus_realize(SYS_BUS_DEVICE(&s->armv7m), errp)) {
         return;
     }
+
+    /* Reset and clock controller */
+    dev = DEVICE(&s->rcc);
+    if (!sysbus_realize(SYS_BUS_DEVICE(&s->rcc), errp)) {
+        return;
+    }
+    busdev = SYS_BUS_DEVICE(dev);
+    sysbus_mmio_map(busdev, 0, 0x40023800);
 
     /* System configuration controller */
     dev = DEVICE(&s->syscfg);
@@ -257,12 +271,13 @@ static void stm32f405_soc_realize(DeviceState *dev_soc, Error **errp)
         busdev = SYS_BUS_DEVICE(dev);
         sysbus_mmio_map(busdev, 0, GPIO_ADDRESS + (i * STM32_GPIO_PERIPHERAL_SIZE));
 
-        // int j;
-        // for (j = 0; j < STM32_GPIO_PINS; j++) {
-        //     sysbus_connect_irq(busdev, j, qdev_get_gpio_in(armv7m, exti_irq[j]));
+        for (int j = 0; j < STM32_GPIO_NPINS; j++) {
+            sysbus_connect_irq(busdev, j, qdev_get_gpio_in(DEVICE(&s->syscfg), i * STM32_GPIO_NPINS + j));
+            // qdev_connect_gpio_out(DEVICE(&s->gpio[i].output[j]), j, qdev_get_gpio_in(dev, j)); // TODO where do we connect the output?
+        }
 
-        //     qdev_connect_gpio_out(DEVICE(&s->gpio[i].output[j]), j, qdev_get_gpio_in(dev, j));
-        // }
+        qdev_connect_gpio_out(DEVICE(&s->syscfg), STM32_RCC_GPIO_IRQ_OFFSET + i, qdev_get_gpio_in(dev, STM32_GPIO_NPINS));
+        qdev_connect_gpio_out(DEVICE(&s->rcc), STM32_RCC_NIRQS + STM32_RCC_GPIO_IRQ_OFFSET + i, qdev_get_gpio_in(dev, STM32_GPIO_NPINS + 1));
     }
 
     create_unimplemented_device("timer[7]",    0x40001400, 0x400);
