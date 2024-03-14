@@ -17,12 +17,18 @@
 #include "qemu/log.h"
 #include "hw/irq.h"
 #include "hw/qdev-properties.h"
+#include "hw/arm/stm32.h"
 #include "hw/gpio/stm32_gpio.h"
 #include "migration/vmstate.h"
 #include "trace.h"
 
-static void update_state(STM32GPIOState *s)
+static void stm32_gpio_update_state(STM32GPIOState *s)
 {
+    if (!(s->enable || s->reset)) { // TODO not sure about this
+        s->idr = 0;
+        return;
+    }
+
     bool prev_id, new_id, od, in, in_mask;
     uint8_t mode, pupd;
 
@@ -54,12 +60,15 @@ static void update_state(STM32GPIOState *s)
         /* Update IDR */
         s->idr = deposit32(s->idr, i, 1, new_id);
 
-        // Trigger output interrupts ()
-        if (mode == STM32_GPIO_MODE_OUTPUT && new_id != prev_id) {
-            qemu_set_irq(s->output[i], new_id);
+        /* Propagate the trigger to the IRQs */
+        if (new_id != prev_id) {
+            if (mode == STM32_GPIO_MODE_INPUT) {
+                qemu_set_irq(s->in_irq[i], new_id);
+            }
+            if (mode == STM32_GPIO_MODE_OUTPUT) {
+                qemu_set_irq(s->out_irq[i], new_id);
+            }
         }
-
-        // TODO trigger input interrupt (needs access to EXTI)
     }
 }
 
@@ -67,6 +76,11 @@ static uint64_t stm32_gpio_read(void *opaque, hwaddr offset, unsigned int size)
 {
     STM32GPIOState *s = STM32_GPIO(opaque);
     uint64_t r = 0;
+
+    if (!s->enable) {
+        qemu_log_mask(LOG_GUEST_ERROR, "%s: GPIO peripheral is disabled\n", __func__);
+        return 0;
+    }
 
     switch (offset) {
     case STM32_GPIO_REG_MODER:
@@ -94,8 +108,7 @@ static uint64_t stm32_gpio_read(void *opaque, hwaddr offset, unsigned int size)
         break;
 
     case STM32_GPIO_REG_BSRR:
-        r = 0; // BSRR is write-only
-        break;
+        break; // BSRR is write-only
 
     case STM32_GPIO_REG_LCKR:
         r = s->lckr;
@@ -108,6 +121,11 @@ static uint64_t stm32_gpio_read(void *opaque, hwaddr offset, unsigned int size)
     case STM32_GPIO_REG_AFRH:
         r = s->afhr;
         break;
+    
+    case STM32_GPIO_REG_BRR:
+        if (s->family != STM32_F4) { // STM32F4xx SoCs do not have this register
+            break; // BRR is write-only
+        }
 
     default:
         qemu_log_mask(LOG_GUEST_ERROR, "%s: bad read offset 0x%" HWADDR_PRIx "\n",  __func__, offset);
@@ -123,6 +141,11 @@ static void stm32_gpio_write(void *opaque, hwaddr offset, uint64_t value, unsign
     STM32GPIOState *s = STM32_GPIO(opaque);
 
     trace_stm32_gpio_write(offset, value);
+
+    if (!s->enable) {
+        qemu_log_mask(LOG_GUEST_ERROR, "%s: GPIO peripheral is disabled\n", __func__);
+        return;
+    }
 
     switch (offset) {
 
@@ -165,15 +188,21 @@ static void stm32_gpio_write(void *opaque, hwaddr offset, uint64_t value, unsign
     case STM32_GPIO_REG_AFRH:
         s->afhr = value;
         break;
+    
+    case STM32_GPIO_REG_BRR:
+        if (s->family != STM32_F4) { // STM32F4xx SoCs do not have this register
+            s->odr &= ~(value & 0xFFFF);
+            break;
+        }
 
     default:
         qemu_log_mask(LOG_GUEST_ERROR, "%s: bad write offset 0x%" HWADDR_PRIx "\n", __func__, offset);
     }
 
-    update_state(s);
+    stm32_gpio_update_state(s);
 }
 
-static const MemoryRegionOps gpio_ops = {
+static const MemoryRegionOps stm32_gpio_ops = {
     .read =  stm32_gpio_read,
     .write = stm32_gpio_write,
     .endianness = DEVICE_NATIVE_ENDIAN,
@@ -181,73 +210,110 @@ static const MemoryRegionOps gpio_ops = {
     .impl.max_access_size = 4,
 };
 
-static void stm32_gpio_set(void *opaque, int line, int value)
-{
-    STM32GPIOState *s = STM32_GPIO(opaque);
-
-    trace_stm32_gpio_set(line, value);
-
-    assert(line >= 0 && line < STM32_GPIO_NPINS);
-
-    s->in_mask = deposit32(s->in_mask, line, 1, value >= 0);
-    if (value >= 0) {
-        s->in = deposit32(s->in, line, 1, value != 0);
-    }
-
-    update_state(s);
-}
-
 static void stm32_gpio_reset(DeviceState *dev)
 {
     STM32GPIOState *s = STM32_GPIO(dev);
 
-    /* Reset values of ODR, OSPEEDR, and PUPDR depends on GPIO port */
-    if (s->port == STM32_GPIO_PORT_A) {
-        s->odr = 0xA8000000;
-        s->ospeedr = 0;
-        s->pupdr = 0x64000000;
-    } else if (s->port == STM32_GPIO_PORT_B) {
-        s->odr = 0x00000280;
-        s->ospeedr = 0x000000C0;
-        s->pupdr = 0x00000100;
-    } else {
-        s->odr = 0;
-        s->ospeedr = 0;
-        s->pupdr = 0;
-    }
+    // enabled is not affected by reset. It is ruled by RCC
+    // IDR is not directly reset. It is updated at the end by update_state
 
+    // By default, we set all the registers to 0
+    s->moder = 0;
     s->otyper = 0;
-    s->idr = 0;
+    s->ospeedr = 0;
+    s->pupdr = 0;
     s->odr = 0;
     s->lckr = 0;
     s->aflr = 0;
     s->afhr = 0;
 
-    s->in = 0;
-    s->in_mask = 0;
+    // Next, we check model particularities
+    if (s->family == STM32_F4) {
+        if (s->port == STM32_GPIO_PORT_A) {
+            s->moder     = 0xA8000000;
+            s->pupdr   = 0x64000000;
+        } else if (s->port == STM32_GPIO_PORT_B) {
+            s->moder     = 0x00000280;
+            s->ospeedr = 0x000000C0;
+            s->pupdr   = 0x00000100;
+        }
+    }
+
+    stm32_gpio_update_state(s);
 }
 
-static const VMStateDescription vmstate_STM32_gpio = {
+static void stm32_gpio_irq_reset(void *opaque, int line, int value)
+{
+    STM32GPIOState *s = STM32_GPIO(opaque);
+
+    trace_stm32_gpio_irq_reset(line, value);
+
+    printf("stm32_gpio_irq_reset: line=%d, value=%d\n", line, value);
+
+    assert(line == STM32_GPIO_NPINS);
+    s->reset = value != 0;
+    if (value) {
+        stm32_gpio_reset(DEVICE(s));
+    }
+}
+
+static void stm32_gpio_irq_enable(void *opaque, int line, int value)
+{
+    STM32GPIOState *s = STM32_GPIO(opaque);
+
+    trace_stm32_gpio_irq_enable(line, value);
+
+    printf("stm32_gpio_irq_enable: line=%d, value=%d\n", line, value);
+
+    assert(line == STM32_GPIO_NPINS + 1);
+    s->enable = value != 0;
+
+    stm32_gpio_update_state(s);
+}
+
+static void stm32_gpio_irq_set(void *opaque, int line, int value)
+{
+    STM32GPIOState *s = STM32_GPIO(opaque);
+
+    trace_stm32_gpio_irq_set(line, value);
+
+    printf("stm32_gpio_irq_set: line=%d, value=%d\n", line, value);
+
+    assert(line >= 0 && line < s->ngpio);
+
+    s->in_mask = deposit32(s->in_mask, line, 1, value >= 0); // <0 is unconnected/connected to load
+    if (value >= 0) {
+        s->in = deposit32(s->in, line, 1, value != 0); // 0 is low, >0 is high
+    }
+
+    stm32_gpio_update_state(s);
+}
+
+static const VMStateDescription vmstate_stm32_gpio = {
     .name = TYPE_STM32_GPIO,
     .version_id = 1,
     .minimum_version_id = 1,
     .fields = (const VMStateField[]) {
-        VMSTATE_UINT32(moder,    STM32GPIOState),
-        VMSTATE_UINT32(otyper,   STM32GPIOState),
-        VMSTATE_UINT32(ospeedr,  STM32GPIOState),
-        VMSTATE_UINT32(pupdr,    STM32GPIOState),
-        VMSTATE_UINT32(idr,      STM32GPIOState),
-        VMSTATE_UINT32(odr,      STM32GPIOState),
-        VMSTATE_UINT32(lckr,     STM32GPIOState),
-        VMSTATE_UINT32(aflr,     STM32GPIOState),
-        VMSTATE_UINT32(afhr,     STM32GPIOState),
+        VMSTATE_UINT32(moder,   STM32GPIOState),
+        VMSTATE_UINT32(otyper,  STM32GPIOState),
+        VMSTATE_UINT32(ospeedr, STM32GPIOState),
+        VMSTATE_UINT32(pupdr,   STM32GPIOState),
+        VMSTATE_UINT32(idr,     STM32GPIOState),
+        VMSTATE_UINT32(odr,     STM32GPIOState),
+        VMSTATE_UINT32(lckr,    STM32GPIOState),
+        VMSTATE_UINT32(aflr,    STM32GPIOState),
+        VMSTATE_UINT32(afhr,    STM32GPIOState),
+        VMSTATE_BOOL(reset,     STM32GPIOState),
+        VMSTATE_BOOL(enable,    STM32GPIOState),
         VMSTATE_UINT32(in,      STM32GPIOState),
         VMSTATE_UINT32(in_mask, STM32GPIOState),
         VMSTATE_END_OF_LIST()
     }
 };
 
-static Property STM32_gpio_properties[] = {
+static Property stm32_gpio_properties[] = {
+    DEFINE_PROP_UINT32("family", STM32GPIOState, family, STM32_F2),
+    DEFINE_PROP_UINT32("port", STM32GPIOState, port, STM32_GPIO_PORT_A),
     DEFINE_PROP_UINT32("ngpio", STM32GPIOState, ngpio, STM32_GPIO_NPINS),
     DEFINE_PROP_END_OF_LIST(),
 };
@@ -256,40 +322,43 @@ static void stm32_gpio_realize(DeviceState *dev, Error **errp)
 {
     STM32GPIOState *s = STM32_GPIO(dev);
 
-    memory_region_init_io(&s->mmio, OBJECT(dev), &gpio_ops, s, TYPE_STM32_GPIO, STM32_GPIO_PERIPHERAL_SIZE);
-
+    memory_region_init_io(&s->mmio, OBJECT(dev), &stm32_gpio_ops, s, TYPE_STM32_GPIO, STM32_GPIO_PERIPHERAL_SIZE);
     sysbus_init_mmio(SYS_BUS_DEVICE(dev), &s->mmio);
+    
+    qdev_init_gpio_in(DEVICE(s), stm32_gpio_irq_set, STM32_GPIO_NPINS);
+    qdev_init_gpio_in(DEVICE(s), stm32_gpio_irq_reset, 1);
+    qdev_init_gpio_in(DEVICE(s), stm32_gpio_irq_enable, 1);
+    qdev_init_gpio_out(DEVICE(s), s->out_irq, STM32_GPIO_NPINS);
 
+    // TODO should we initialize enable and reset IRQs? or is it done by RCC?
     for (int i = 0; i < STM32_GPIO_NPINS; i++) {
-        sysbus_init_irq(SYS_BUS_DEVICE(dev), &s->input[i]);
+        sysbus_init_irq(SYS_BUS_DEVICE(dev), &s->in_irq[i]);
     }
-
-    qdev_init_gpio_in(DEVICE(s), stm32_gpio_set, STM32_GPIO_NPINS);
-    qdev_init_gpio_out(DEVICE(s), s->output, STM32_GPIO_NPINS);
+    sysbus_init_irq(SYS_BUS_DEVICE(dev), &s->reset_irq);
+    sysbus_init_irq(SYS_BUS_DEVICE(dev), &s->enable_irq);
 }
 
 static void stm32_gpio_class_init(ObjectClass *klass, void *data)
 {
-    printf("stm32_gpio_class_init\n");
     DeviceClass *dc = DEVICE_CLASS(klass);
 
-    device_class_set_props(dc, STM32_gpio_properties);
-    dc->vmsd = &vmstate_STM32_gpio;
+    device_class_set_props(dc, stm32_gpio_properties);
+    dc->vmsd = &vmstate_stm32_gpio;
     dc->realize = stm32_gpio_realize;
     dc->reset = stm32_gpio_reset;
     dc->desc = "STM32 GPIO";
 }
 
-static const TypeInfo STM32_gpio_info = {
+static const TypeInfo stm32_gpio_info = {
     .name = TYPE_STM32_GPIO,
     .parent = TYPE_SYS_BUS_DEVICE,
     .instance_size = sizeof(STM32GPIOState),
     .class_init = stm32_gpio_class_init
 };
 
-static void STM32_gpio_register_types(void)
+static void stm32_gpio_register_types(void)
 {
-    type_register_static(&STM32_gpio_info);
+    type_register_static(&stm32_gpio_info);
 }
 
-type_init(STM32_gpio_register_types)
+type_init(stm32_gpio_register_types)

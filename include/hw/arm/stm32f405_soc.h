@@ -30,6 +30,7 @@
 #include "hw/char/stm32f2xx_usart.h"
 #include "hw/adc/stm32f2xx_adc.h"
 #include "hw/misc/stm32f4xx_exti.h"
+#include "hw/misc/stm32_rcc.h"
 #include "hw/gpio/stm32_gpio.h"
 #include "hw/or-irq.h"
 #include "hw/ssi/stm32f2xx_spi.h"
@@ -57,6 +58,7 @@ struct STM32F405State {
 
     ARMv7MState armv7m;
 
+    STM32RccState rcc;
     STM32F4xxSyscfgState syscfg;
     STM32F4xxExtiState exti;
     STM32F2XXUsartState usart[STM_NUM_USARTS];

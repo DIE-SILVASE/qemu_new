@@ -47,20 +47,26 @@ static void stm32f4xx_exti_set_irq(void *opaque, int irq, int level)
 
     trace_stm32f4xx_exti_set_irq(irq, level);
 
+    printf("stm32f4xx_exti_set_irq: irq=%d, level=%d", irq, level);
+
     if (((1 << irq) & s->exti_rtsr) && level) {
         /* Rising Edge */
+        printf(" (Rising Edge)");
         s->exti_pr |= 1 << irq;
     }
 
     if (((1 << irq) & s->exti_ftsr) && !level) {
         /* Falling Edge */
+        printf(" (Falling Edge)");
         s->exti_pr |= 1 << irq;
     }
 
     if (!((1 << irq) & s->exti_imr)) {
+        printf(" (Interrupt is masked)\n");
         /* Interrupt is masked */
         return;
     }
+    printf("\n");
     qemu_irq_pulse(s->irq[irq]);
 }
 
