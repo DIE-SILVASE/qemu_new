@@ -21,7 +21,7 @@ jobs:
                 packages: libglib2.0-dev libfdt-dev libpixman-1-dev zlib1g-dev ninja-build
 
             - name: Run configure script
-              run: sh ./configure --target_lit arm-softmmu
+              run: sh ./configure --target_list=arm-softmmu
 
             - name: Build qemu
               run: make -C$(pwd)/build
