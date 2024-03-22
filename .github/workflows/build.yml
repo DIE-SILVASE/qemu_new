@@ -25,3 +25,11 @@ jobs:
 
             - name: Build qemu
               run: make -C$(pwd)/build
+
+            - name: Upload build
+              uses: actions/upload-artifact@v4
+              with:
+                name: qemu-system-arm
+                path: build
+                overwrite: true
+
