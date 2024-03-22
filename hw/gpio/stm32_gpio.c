@@ -126,6 +126,8 @@ static uint64_t stm32_gpio_read(void *opaque, hwaddr offset, unsigned int size)
         if (s->family != STM32_F4) { // STM32F4xx SoCs do not have this register
             break; // BRR is write-only
         }
+        qemu_log_mask(LOG_GUEST_ERROR, "%s: bad read offset 0x%" HWADDR_PRIx "\n",  __func__, offset);
+        break;
 
     default:
         qemu_log_mask(LOG_GUEST_ERROR, "%s: bad read offset 0x%" HWADDR_PRIx "\n",  __func__, offset);
@@ -194,6 +196,8 @@ static void stm32_gpio_write(void *opaque, hwaddr offset, uint64_t value, unsign
             s->odr &= ~(value & 0xFFFF);
             break;
         }
+        qemu_log_mask(LOG_GUEST_ERROR, "%s: bad write offset 0x%" HWADDR_PRIx "\n", __func__, offset);
+        break;
 
     default:
         qemu_log_mask(LOG_GUEST_ERROR, "%s: bad write offset 0x%" HWADDR_PRIx "\n", __func__, offset);
