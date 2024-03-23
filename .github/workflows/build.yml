@@ -6,6 +6,8 @@ on: [push, workflow_dispatch]
 jobs:
     build:
         runs-on: ubuntu-latest
+        env:
+          RELEASE_TAG: ${{ github.event.number }}
         steps:
             - name: Checkout
               uses: actions/checkout@v2
@@ -31,7 +33,7 @@ jobs:
               with:
                 files: |
                   build/qemu-system-arm
-                token: ${{ secrets.GITHUB_TOKEN }}
+                token: ${{ env.RELEASE_TAG }}
                 name: qemu arm linux
                 draft: false
                 prerelease: false
