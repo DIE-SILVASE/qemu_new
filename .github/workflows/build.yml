@@ -27,10 +27,12 @@ jobs:
               run: make -C$(pwd)/build
 
             - name: Upload build
-              uses: ncipollo/release-action@v1
+              uses: softprops/action-gh-release@v2
               with:
-                allowUpdates: true
-                artifacts: "build/qemu-system-arm"
-                body: "build for linux systems"
-                makeLatest: true
-
+                files: |
+                  build/qemu-system-arm
+                token: ${{ secrets.GITHUB_TOKEN }}
+                name: qemu arm linux
+                draft: false
+                prerelease: false
+                make_latest: true
