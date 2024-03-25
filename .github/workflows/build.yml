@@ -30,7 +30,7 @@ jobs:
               uses: softprops/action-gh-release@v2
               with:
                 files: |
-                  build/qemu-system-arm
+                  build
                 token: ${{ github.token }}
                 name: qemu arm linux
                 draft: false
