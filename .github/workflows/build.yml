@@ -26,11 +26,14 @@ jobs:
             - name: Build qemu
               run: make -C$(pwd)/build
 
+            - name: generate tar with qemu
+              run: tar -czf build.tar.gz build
+
             - name: Upload build
               uses: softprops/action-gh-release@v2
               with:
                 files: |
-                  build
+                  build.tar.gz
                 token: ${{ github.token }}
                 name: qemu arm linux
                 draft: false
