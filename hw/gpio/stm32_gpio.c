@@ -22,6 +22,8 @@
 #include "migration/vmstate.h"
 #include "trace.h"
 
+static void stm32_gpio_irq_set(void *opaque, int line, int value);
+
 static void stm32_gpio_update_state(STM32GPIOState *s)
 {
     if (!(s->enable || s->reset)) { // TODO not sure about this
@@ -168,6 +170,10 @@ static void stm32_gpio_write(void *opaque, hwaddr offset, uint64_t value, unsign
         break;
     
     case STM32_GPIO_REG_IDR:
+        uint8_t i;
+        for (i = 0; i < 16; i++) {
+            stm32_gpio_irq_set(s, i, (value >> i) & 1);
+        }
         break; // IDR is read-only
 
     case STM32_GPIO_REG_ODR:
