@@ -271,15 +271,12 @@ static void stm32f405_soc_realize(DeviceState *dev_soc, Error **errp)
         busdev = SYS_BUS_DEVICE(dev);
         sysbus_mmio_map(busdev, 0, GPIO_ADDRESS + (i * STM32_GPIO_PERIPHERAL_SIZE));
 
+        qdev_connect_gpio_out(DEVICE(&s->syscfg), STM32_RCC_GPIO_IRQ_OFFSET + i, qdev_get_gpio_in_named(dev, "reset-in", 0));
+        qdev_connect_gpio_out(DEVICE(&s->rcc), STM32_RCC_NIRQS + STM32_RCC_GPIO_IRQ_OFFSET + i, qdev_get_gpio_in_named(dev, "enable-in", 0));
         for (int j = 0; j < STM32_GPIO_NPINS; j++) {
-            sysbus_connect_irq(busdev, j, qdev_get_gpio_in(DEVICE(&s->syscfg), i * STM32_GPIO_NPINS + j));
-            // qdev_connect_gpio_out(DEVICE(&s->gpio[i].output[j]), j, qdev_get_gpio_in(dev, j)); // TODO where do we connect the output?
+            qdev_connect_gpio_out_named(dev, "gpio-out", j, qdev_get_gpio_in(DEVICE(&s->syscfg), i * STM32_GPIO_NPINS + j));
         }
-
-        qdev_connect_gpio_out(DEVICE(&s->syscfg), STM32_RCC_GPIO_IRQ_OFFSET + i, qdev_get_gpio_in(dev, STM32_GPIO_NPINS));
-        qdev_connect_gpio_out(DEVICE(&s->rcc), STM32_RCC_NIRQS + STM32_RCC_GPIO_IRQ_OFFSET + i, qdev_get_gpio_in(dev, STM32_GPIO_NPINS + 1));
     }
-
     create_unimplemented_device("timer[7]",    0x40001400, 0x400);
     create_unimplemented_device("timer[12]",   0x40001800, 0x400);
     create_unimplemented_device("timer[6]",    0x40001000, 0x400);
