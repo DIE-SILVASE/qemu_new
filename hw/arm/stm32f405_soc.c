@@ -276,8 +276,12 @@ static void stm32f405_soc_realize(DeviceState *dev_soc, Error **errp)
             // qdev_connect_gpio_out(DEVICE(&s->gpio[i].output[j]), j, qdev_get_gpio_in(dev, j)); // TODO where do we connect the output?
         }
 
+        printf("finalización config gpio\n");
+
         qdev_connect_gpio_out(DEVICE(&s->syscfg), STM32_RCC_GPIO_IRQ_OFFSET + i, qdev_get_gpio_in(dev, STM32_GPIO_NPINS));
         qdev_connect_gpio_out(DEVICE(&s->rcc), STM32_RCC_NIRQS + STM32_RCC_GPIO_IRQ_OFFSET + i, qdev_get_gpio_in(dev, STM32_GPIO_NPINS + 1));
+
+        printf("finalización config irqs\n");
     }
 
     create_unimplemented_device("timer[7]",    0x40001400, 0x400);

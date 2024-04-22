@@ -335,10 +335,16 @@ static void stm32_gpio_realize(DeviceState *dev, Error **errp)
     memory_region_init_io(&s->mmio, OBJECT(dev), &stm32_gpio_ops, s, TYPE_STM32_GPIO, STM32_GPIO_PERIPHERAL_SIZE);
     sysbus_init_mmio(SYS_BUS_DEVICE(dev), &s->mmio);
     
-    qdev_init_gpio_in(DEVICE(s), stm32_gpio_irq_set, STM32_GPIO_NPINS);
-    qdev_init_gpio_in(DEVICE(s), stm32_gpio_irq_reset, 1);
-    qdev_init_gpio_in(DEVICE(s), stm32_gpio_irq_enable, 1);
+    char* gpio_name = g_strdup_printf("stm32-gpio-%c", 'A' + s->port);
+
+    printf("%s\n", gpio_name);
+
+    qdev_init_gpio_in_named(DEVICE(s), stm32_gpio_irq_set, gpio_name, STM32_GPIO_NPINS);
+    qdev_init_gpio_in_named(DEVICE(s), stm32_gpio_irq_reset, "GPIOA_PIN", 1);
+    qdev_init_gpio_in_named(DEVICE(s), stm32_gpio_irq_enable, "test",1);
     qdev_init_gpio_out(DEVICE(s), s->out_irq, STM32_GPIO_NPINS);
+
+    printf("end port %i configuration\n", s->port);
 
     // TODO should we initialize enable and reset IRQs? or is it done by RCC?
     for (int i = 0; i < STM32_GPIO_NPINS; i++) {

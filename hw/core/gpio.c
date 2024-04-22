@@ -105,6 +105,8 @@ qemu_irq qdev_get_gpio_in_named(DeviceState *dev, const char *name, int n)
 {
     NamedGPIOList *gpio_list = qdev_get_named_gpio_list(dev, name);
 
+    printf("n: %i, num_in: %i, name: %s\n", n, gpio_list->num_in, name);
+
     assert(n >= 0 && n < gpio_list->num_in);
     return gpio_list->in[n];
 }
