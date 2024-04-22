@@ -1,0 +1,42 @@
+# Builds qemu-system-arm and publish a binary to github
+# Created by Eugenio Cano Muñoz
+name: Build adn public qemu-system-arm
+run-name: Build qemu-system-arm and publish a binary
+on: [push, workflow_dispatch]
+jobs:
+    build:
+        runs-on: ubuntu-latest
+        steps:
+            - name: Checkout
+              uses: actions/checkout@v2
+              with:
+                ref: dev-stm32-gpio
+            
+            - name: Clone recursively
+              run: git submodule update --init --recursive
+
+            - name: Installs qemu dependencies with cache
+              uses: awalsh128/cache-apt-pkgs-action@latest
+              with:
+                packages: libglib2.0-dev libfdt-dev libpixman-1-dev zlib1g-dev ninja-build
+
+            - name: Run configure script
+              run: sh ./configure --target-list=arm-softmmu
+
+            - name: Build qemu
+              run: make -C$(pwd)/build
+
+            - name: generate tar with qemu
+              run: tar -czf build.tar.gz build
+
+            - name: Upload build
+              uses: softprops/action-gh-release@v2
+              with:
+                files: |
+                  build.tar.gz
+                token: ${{ github.token }}
+                name: qemu arm linux
+                draft: false
+                prerelease: false
+                make_latest: true
+                tag_name: ${{ hashFiles('build/qemu-system-arm') }}

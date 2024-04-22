@@ -22,6 +22,8 @@
 #include "migration/vmstate.h"
 #include "trace.h"
 
+static void stm32_gpio_irq_set(void *opaque, int line, int value);
+
 static void stm32_gpio_update_state(STM32GPIOState *s)
 {
     if (!(s->enable || s->reset)) { // TODO not sure about this
@@ -204,6 +206,8 @@ static uint64_t stm32_gpio_read(void *opaque, hwaddr offset, unsigned int size)
         if (s->family != STM32_F4) { // STM32F4xx SoCs do not have this register
             break; // BRR is write-only
         }
+        qemu_log_mask(LOG_GUEST_ERROR, "%s: bad read offset 0x%" HWADDR_PRIx "\n",  __func__, offset);
+        break;
 
     default:
         qemu_log_mask(LOG_GUEST_ERROR, "%s: bad read offset 0x%" HWADDR_PRIx "\n",  __func__, offset);
@@ -244,6 +248,10 @@ static void stm32_gpio_write(void *opaque, hwaddr offset, uint64_t value, unsign
         break;
     
     case STM32_GPIO_REG_IDR:
+        uint8_t i;
+        for (i = 0; i < 16; i++) {
+            stm32_gpio_irq_set(s, i, (value >> i) & 1);
+        }
         break; // IDR is read-only
 
     case STM32_GPIO_REG_ODR:
@@ -272,6 +280,8 @@ static void stm32_gpio_write(void *opaque, hwaddr offset, uint64_t value, unsign
             s->odr &= ~(value & 0xFFFF);
             break;
         }
+        qemu_log_mask(LOG_GUEST_ERROR, "%s: bad write offset 0x%" HWADDR_PRIx "\n", __func__, offset);
+        break;
 
     default:
         qemu_log_mask(LOG_GUEST_ERROR, "%s: bad write offset 0x%" HWADDR_PRIx "\n", __func__, offset);
