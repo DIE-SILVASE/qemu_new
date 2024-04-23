@@ -65,14 +65,10 @@ struct STM32GPIOState {
     uint32_t in;
     uint32_t in_mask; /* 0: pin disconnected/connected to load; 1: pin connected to value in in */
 
-    /* IRQ triggered by RCC to reset GPIO peripheral */
-    qemu_irq reset_irq;
-    /* IRQ triggered by RCC to enable/disable GPIO peripheral */
-    qemu_irq enable_irq;
+    /* IRQ to notify that the GPIO has updated its state */
+    qemu_irq state_irq;
     /* IRQs to relay input pin changes to other STM32 peripherals */
-    qemu_irq in_irq[STM32_GPIO_NPINS];
-    /* IRQs used to communicate with the machine implementation */
-    qemu_irq out_irq[STM32_GPIO_NPINS];
+    qemu_irq input_irq[STM32_GPIO_NPINS];
 
     /* config */
     uint32_t family; // e.g. STM32_F4

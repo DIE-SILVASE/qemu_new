@@ -24,11 +24,6 @@
 
 static void stm32_gpio_update_state(STM32GPIOState *s)
 {
-    if (!(s->enable || s->reset)) { // TODO not sure about this
-        s->idr = 0;
-        return;
-    }
-
     bool prev_id, new_id, od, in, in_mask;
     uint8_t mode, pupd;
 
@@ -60,13 +55,15 @@ static void stm32_gpio_update_state(STM32GPIOState *s)
         /* Update IDR */
         s->idr = deposit32(s->idr, i, 1, new_id);
 
-        /* Propagate the trigger to the IRQs */
+        /* If pin is in input mode and IDR has changed, trigger an IRQ */
         if (new_id != prev_id) {
             if (mode == STM32_GPIO_MODE_INPUT) {
-                qemu_set_irq(s->out_irq[i], new_id);
+                qemu_set_irq(s->input_irq[i], new_id);
             }
         }
     }
+    /* Notify that GPIO has changed its state */
+    qemu_irq_pulse(s->state_irq);
 }
 
 static void stm32_gpio_reset(DeviceState *dev)
@@ -107,12 +104,14 @@ static void stm32_gpio_irq_reset(void *opaque, int line, int value)
 
     trace_stm32_gpio_irq_reset(line, value);
 
-    printf("stm32_gpio_irq_reset: line=%d, value=%d\n", line, value);
-
-    assert(line == 0);
+    bool prev_reset = s->reset;
     s->reset = value != 0;
-    if (value) {
-        stm32_gpio_reset(DEVICE(s));
+    if (prev_reset != s->reset) {
+        if (s->reset) {
+            stm32_gpio_reset(DEVICE(s));
+        } else {
+            stm32_gpio_update_state(s);
+        }
     }
 }
 
@@ -122,12 +121,11 @@ static void stm32_gpio_irq_enable(void *opaque, int line, int value)
 
     trace_stm32_gpio_irq_enable(line, value);
 
-    printf("stm32_gpio_irq_enable: line=%d, value=%d\n", line, value);
-
-    assert(line == 0);
+    bool prev_enable = s->enable;
     s->enable = value != 0;
-
-    stm32_gpio_update_state(s);
+    if (prev_enable != s->enable) {
+        stm32_gpio_update_state(s);
+    }
 }
 
 static void stm32_gpio_irq_set(void *opaque, int line, int value)
@@ -135,8 +133,6 @@ static void stm32_gpio_irq_set(void *opaque, int line, int value)
     STM32GPIOState *s = STM32_GPIO(opaque);
 
     trace_stm32_gpio_irq_set(line, value);
-
-    printf("stm32_gpio_irq_set: line=%d, value=%d\n", line, value);
 
     assert(line >= 0 && line < s->ngpio);
 
@@ -327,19 +323,12 @@ static void stm32_gpio_realize(DeviceState *dev, Error **errp)
     memory_region_init_io(&s->mmio, OBJECT(dev), &stm32_gpio_ops, s, TYPE_STM32_GPIO, STM32_GPIO_PERIPHERAL_SIZE);
     sysbus_init_mmio(SYS_BUS_DEVICE(dev), &s->mmio);
     
-
-    // TODO should we initialize enable and reset IRQs? or is it done by RCC?
-    for (int i = 0; i < STM32_GPIO_NPINS; i++) {
-        sysbus_init_irq(SYS_BUS_DEVICE(dev), &s->in_irq[i]);
-    }
-    sysbus_init_irq(SYS_BUS_DEVICE(dev), &s->reset_irq);
-    sysbus_init_irq(SYS_BUS_DEVICE(dev), &s->enable_irq);
-
-    qdev_init_gpio_in_named(DEVICE(s), stm32_gpio_irq_set, "gpio-in", STM32_GPIO_NPINS);
     qdev_init_gpio_in_named(DEVICE(s), stm32_gpio_irq_reset, "reset-in", 1);
     qdev_init_gpio_in_named(DEVICE(s), stm32_gpio_irq_enable, "enable-in", 1);
+    qdev_init_gpio_in_named(DEVICE(s), stm32_gpio_irq_set, "input-in", STM32_GPIO_NPINS);
 
-    qdev_init_gpio_out_named(DEVICE(s), s->out_irq, "gpio-out", STM32_GPIO_NPINS);
+    qdev_init_gpio_out_named(DEVICE(s), &s->state_irq, "state-out", 1);
+    qdev_init_gpio_out_named(DEVICE(s), s->input_irq, "input-out", STM32_GPIO_NPINS);
 }
 
 static void stm32_gpio_class_init(ObjectClass *klass, void *data)

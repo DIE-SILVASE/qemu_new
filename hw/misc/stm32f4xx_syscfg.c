@@ -52,8 +52,6 @@ static void stm32f4xx_syscfg_set_irq(void *opaque, int irq, int level)
 
     g_assert(port <= STM32_GPIO_PORT_I); // stm32f4xx only has ports A-I
 
-    printf("stm32f4xx_syscfg_set_irq: port=%d, pin=%d, level=%d", port, pin, level);
-
     int icrreg = pin / 4;
     int startbit = (pin % 4) * 4;
 
@@ -62,12 +60,9 @@ static void stm32f4xx_syscfg_set_irq(void *opaque, int irq, int level)
     g_assert(icrreg < SYSCFG_NUM_EXTICR);
 
     if (extract32(s->syscfg_exticr[icrreg], startbit, 4) == port) {
-        printf(" (forwarding to EXTI)\n");
         qemu_set_irq(s->gpio_out[pin], level);
         trace_stm32f4xx_pulse_exti(pin);
-   } else {
-        printf("\n");
-    }
+   }
 }
 
 static uint64_t stm32f4xx_syscfg_read(void *opaque, hwaddr addr,
