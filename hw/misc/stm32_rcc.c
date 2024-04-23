@@ -67,9 +67,6 @@ static void stm32_rcc_write(void *opaque, hwaddr addr,  uint64_t val64, unsigned
 
     switch (addr) {
     case STM32_RCC_AHB1_RSTR...STM32_RCC_APB2_RSTR:
-
-        printf("stm32_rcc_write: addr=%llx, value=%x (RESET)\n", (long long unsigned int)addr, value);
-
         prev_value = s->regs[addr / 4];
         s->regs[addr / 4] = value;
 
@@ -83,7 +80,6 @@ static void stm32_rcc_write(void *opaque, hwaddr addr,  uint64_t val64, unsigned
         }
         return;
     case STM32_RCC_AHB1_ENR...STM32_RCC_APB2_ENR:
-        printf("stm32_rcc_write: addr=%llx, value=%x (ENABLE)\n", (long long unsigned int) addr, value);
         prev_value = s->regs[addr / 4];
         s->regs[addr / 4] = value;
 

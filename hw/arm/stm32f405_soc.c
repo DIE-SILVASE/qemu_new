@@ -54,6 +54,10 @@ static const int exti_irq[] =  { 6, 7, 8, 9, 10, 23, 23, 23, 23, 23, 40,
                                  40, 40, 40, 40, 40} ;
 
 
+static void stm32f405_soc_gpio_irq(void *opaque, int line, int value) {
+    /* empty irq routine, we only use it to notify GPIO state changes to QTest */
+}
+
 static void stm32f405_soc_initfn(Object *obj)
 {
     STM32F405State *s = STM32F405_SOC(obj);
@@ -85,9 +89,6 @@ static void stm32f405_soc_initfn(Object *obj)
 
     for (i = STM32_GPIO_PORT_A; i <= STM32_GPIO_PORT_I; i++) {
         object_initialize_child(obj, "gpio[*]", &s->gpio[i], TYPE_STM32_GPIO);
-        s->gpio[i].family = STM32_F4;
-        s->gpio[i].port = i;
-        s->gpio[i].ngpio = STM32_GPIO_NPINS;
     }
 
     object_initialize_child(obj, "rcc", &s->rcc, TYPE_STM32_RCC);
@@ -265,6 +266,9 @@ static void stm32f405_soc_realize(DeviceState *dev_soc, Error **errp)
     /* GPIO devices */
     for (i = STM32_GPIO_PORT_A; i <= STM32_GPIO_PORT_I; i++) {
         dev = DEVICE(&(s->gpio[i]));
+        qdev_prop_set_uint32(dev, "family", STM32_F4);
+        qdev_prop_set_uint32(dev, "port", i);
+        qdev_prop_set_uint32(dev, "ngpio", STM32_GPIO_NPINS);
         if (!sysbus_realize(SYS_BUS_DEVICE(&s->gpio[i]), errp)) {
             return;
         }
@@ -274,9 +278,10 @@ static void stm32f405_soc_realize(DeviceState *dev_soc, Error **errp)
         qdev_connect_gpio_out(DEVICE(&s->syscfg), STM32_RCC_GPIO_IRQ_OFFSET + i, qdev_get_gpio_in_named(dev, "reset-in", 0));
         qdev_connect_gpio_out(DEVICE(&s->rcc), STM32_RCC_NIRQS + STM32_RCC_GPIO_IRQ_OFFSET + i, qdev_get_gpio_in_named(dev, "enable-in", 0));
         for (int j = 0; j < STM32_GPIO_NPINS; j++) {
-            qdev_connect_gpio_out_named(dev, "gpio-out", j, qdev_get_gpio_in(DEVICE(&s->syscfg), i * STM32_GPIO_NPINS + j));
+            qdev_connect_gpio_out_named(dev, "input-out", j, qdev_get_gpio_in(DEVICE(&s->syscfg), i * STM32_GPIO_NPINS + j));
         }
     }
+
     create_unimplemented_device("timer[7]",    0x40001400, 0x400);
     create_unimplemented_device("timer[12]",   0x40001800, 0x400);
     create_unimplemented_device("timer[6]",    0x40001000, 0x400);
@@ -301,7 +306,6 @@ static void stm32f405_soc_realize(DeviceState *dev_soc, Error **errp)
     create_unimplemented_device("timer[10]",   0x40014400, 0x400);
     create_unimplemented_device("timer[11]",   0x40014800, 0x400);
     create_unimplemented_device("CRC",         0x40023000, 0x400);
-    create_unimplemented_device("RCC",         0x40023800, 0x400);
     create_unimplemented_device("Flash Int",   0x40023C00, 0x400);
     create_unimplemented_device("BKPSRAM",     0x40024000, 0x400);
     create_unimplemented_device("DMA1",        0x40026000, 0x400);
@@ -311,6 +315,13 @@ static void stm32f405_soc_realize(DeviceState *dev_soc, Error **errp)
     create_unimplemented_device("USB OTG FS",  0x50000000, 0x31000);
     create_unimplemented_device("DCMI",        0x50050000, 0x400);
     create_unimplemented_device("RNG",         0x50060800, 0x400);
+
+    /* Add input IRQs to monitor GPIO state changes via QTest */
+    qdev_init_gpio_in(DEVICE(s), stm32f405_soc_gpio_irq, STM32_GPIO_PORT_I + 1);
+    for (i = 0; i <= STM32_GPIO_PORT_I; i++) {
+        dev = DEVICE(&(s->gpio[i]));
+        qdev_connect_gpio_out_named(dev, "state-out", 0, qdev_get_gpio_in(DEVICE(s), i));
+    }
 }
 
 static void stm32f405_soc_class_init(ObjectClass *klass, void *data)
